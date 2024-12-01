@@ -1,0 +1,6 @@
+rich
+python-dotenv
+requests
+parse
+advent-of-code-ocr
+beautifulsoup4
