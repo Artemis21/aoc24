@@ -1,3 +1,5 @@
+use std::ops::RangeInclusive;
+
 use aoc_runner_derive::aoc;
 
 #[aoc(day2, part1)]
@@ -5,43 +7,21 @@ pub fn part1(input: &str) -> usize {
     let mut input = Input(input.as_bytes());
     let mut count = 0;
     loop {
-        let mut last = input.read_int();
-        let mut inc = true;
-        let mut dec = true;
-        for _ in 0..3 {
-            let num = input.read_int();
-            let diff = num - last;
-            if inc && !(1..=3).contains(&diff) {
-                inc = false;
-            }
-            if dec && !(-3..=-1).contains(&diff) {
-                dec = false;
-            }
-            last = num;
-        }
+        let mut state = CheckUndamped::new(input.read_int());
+        state.push(input.read_int());
+        state.push(input.read_int());
+        state.push(input.read_int());
         for _ in 0..4 {
             let (num, eol, eof) = input.read_int_sep();
-            let diff = num - last;
-            if inc && !(1..=3).contains(&diff) {
-                inc = false;
-            }
-            if dec && !(-3..=-1).contains(&diff) {
-                dec = false;
-            }
+            state.push(num);
             if eof {
-                if inc || dec {
-                    count += 1;
-                }
-                return count;
+                return count + (state.safe() as usize);
             }
             if eol {
                 break;
             }
-            last = num;
         }
-        if inc || dec {
-            count += 1;
-        }
+        count += state.safe() as usize;
     }
 }
 
@@ -50,25 +30,20 @@ pub fn part2(input: &str) -> usize {
     let mut input = Input(input.as_bytes());
     let mut count = 0;
     loop {
-        let mut state = TestState::new(input.read_int(), input.read_int());
+        let mut state = CheckDamped::new(input.read_int(), input.read_int());
         state.push(input.read_int());
         state.push(input.read_int());
         for _ in 0..4 {
             let (num, eol, eof) = input.read_int_sep();
             state.push(num);
             if eof {
-                if !state.is_known_unsafe() {
-                    count += 1;
-                }
-                return count;
+                return count + (state.safe() as usize);
             }
             if eol {
                 break;
             }
         }
-        if !state.is_known_unsafe() {
-            count += 1;
-        }
+        count += state.safe() as usize;
     }
 }
 
@@ -130,7 +105,62 @@ impl<'a> Input<'a> {
     }
 }
 
-enum State {
+struct CheckUndamped {
+    inc: bool,
+    dec: bool,
+    last: isize,
+}
+
+impl CheckUndamped {
+    fn new(first: isize) -> Self {
+        Self {
+            inc: true,
+            dec: true,
+            last: first,
+        }
+    }
+
+    fn safe(&self) -> bool {
+        self.inc || self.dec
+    }
+
+    fn push(&mut self, next: isize) {
+        let diff = next - self.last;
+        if self.inc && !(1..=3).contains(&diff) {
+            self.inc = false;
+        }
+        if self.dec && !(-3..=-1).contains(&diff) {
+            self.dec = false;
+        }
+        self.last = next;
+    }
+}
+
+struct CheckDamped {
+    inc: DampingState<1, 3>,
+    dec: DampingState<-3, -1>,
+}
+
+impl CheckDamped {
+    fn new(a: isize, b: isize) -> Self {
+        Self {
+            inc: DampingState::new(a, b),
+            dec: DampingState::new(a, b),
+        }
+    }
+
+    fn safe(&self) -> bool {
+        self.inc.safe() || self.dec.safe()
+    }
+
+    fn push(&mut self, next: isize) {
+        self.inc.push(next);
+        self.dec.push(next);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DampingState<const MIN: isize, const MAX: isize> {
     /// Everything we've seen so far is safe. Of (before, last) a future number
     /// can follow either, but following 'before' means dropping 'last'.
     TwoGood(isize, isize),
@@ -143,71 +173,43 @@ enum State {
     Unsafe,
 }
 
-struct TestState {
-    inc: State,
-    dec: State,
-}
+impl<const MIN: isize, const MAX: isize> DampingState<MIN, MAX> {
+    const RANGE: RangeInclusive<isize> = MIN..=MAX;
 
-impl TestState {
-    fn new(a: isize, b: isize) -> Self {
-        let inc = if (1..=3).contains(&(b - a)) {
-            State::TwoGood(a, b)
+    fn new(fst: isize, snd: isize) -> Self {
+        if Self::RANGE.contains(&(snd - fst)) {
+            Self::TwoGood(fst, snd)
         } else {
-            State::TwoBad(a, b)
-        };
-        let dec = if (-3..=-1).contains(&(b - a)) {
-            State::TwoGood(a, b)
-        } else {
-            State::TwoBad(a, b)
-        };
-        Self { inc, dec }
-    }
-
-    fn is_known_unsafe(&self) -> bool {
-        match (&self.inc, &self.dec) {
-            (State::Unsafe, State::Unsafe) => true,
-            _ => false,
+            Self::TwoBad(fst, snd)
         }
     }
 
     fn push(&mut self, next: isize) {
-        self.inc = match self.inc {
-            State::TwoGood(before, last) => {
-                if (1..=3).contains(&(next - last)) {
-                    State::TwoGood(last, next)
-                } else if (1..=3).contains(&(next - before)) {
-                    State::TwoBad(last, next)
+        *self = match *self {
+            Self::TwoGood(before, last) => {
+                if Self::RANGE.contains(&(next - last)) {
+                    Self::TwoGood(last, next)
+                } else if Self::RANGE.contains(&(next - before)) {
+                    Self::TwoBad(last, next)
                 } else {
-                    State::TwoBad(last, last)
+                    Self::TwoBad(last, last)
                 }
             },
-            State::TwoBad(a, b) => {
-                if (1..=3).contains(&(next - a)) || (1..=3).contains(&(next - b)) {
-                    State::TwoBad(next, next)
+            Self::TwoBad(a, b) => {
+                if Self::RANGE.contains(&(next - a)) || Self::RANGE.contains(&(next - b)) {
+                    Self::TwoBad(next, next)
                 } else {
-                    State::Unsafe
+                    Self::Unsafe
                 }
             },
-            State::Unsafe => State::Unsafe,
+            Self::Unsafe => Self::Unsafe,
         };
-        self.dec = match self.dec {
-            State::TwoGood(before, last) => {
-                if (-3..=-1).contains(&(next - last)) {
-                    State::TwoGood(last, next)
-                } else if (-3..=-1).contains(&(next - before)) {
-                    State::TwoBad(last, next)
-                } else {
-                    State::TwoBad(last, last)
-                }
-            },
-            State::TwoBad(a, b) => {
-                if (-3..=-1).contains(&(next - a)) || (-3..=-1).contains(&(next - b)) {
-                    State::TwoBad(next, next)
-                } else {
-                    State::Unsafe
-                }
-            },
-            State::Unsafe => State::Unsafe,
-        };
+    }
+
+    fn safe(&self) -> bool {
+        match *self {
+            Self::Unsafe => false,
+            _ => true,
+        }
     }
 }
