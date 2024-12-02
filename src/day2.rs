@@ -49,57 +49,44 @@ pub fn part2(input: &str) -> usize {
 
 struct Input<'a>(&'a [u8]);
 
-const SPACE: isize = b' ' as isize;
 const NEWLINE: isize = b'\n' as isize;
 const ZERO: isize = b'0' as isize;
 
 impl<'a> Input<'a> {
     fn read_int(&mut self) -> isize {
         unsafe {
-            let num = *self.0.get_unchecked(0) as isize - ZERO;
-            let next = *self.0.get_unchecked(1) as isize;
-            match next {
-                SPACE | NEWLINE => {
-                    self.0 = &self.0.get_unchecked(2..);
-                    num
-                }
-                _ => {
-                    let num = num * 10 + next - ZERO;
-                    self.0 = &self.0.get_unchecked(3..);
-                    num
-                }
+            let d1 = *self.0.get_unchecked(0) as isize - ZERO;
+            let d2 = *self.0.get_unchecked(1) as isize - ZERO;
+            if d2 >= 0 {
+                self.0 = &self.0.get_unchecked(3..);
+                d1 * 10 + d2
+            } else {
+                self.0 = &self.0.get_unchecked(2..);
+                d1
             }
         }
     }
 
     fn read_int_sep(&mut self) -> (isize, bool, bool) {
         unsafe {
-            let num = *self.0.get_unchecked(0) as isize - ZERO;
+            let d1 = *self.0.get_unchecked(0) as isize - ZERO;
             if self.0.len() == 1 {
-                return (num, true, true);
+                return (d1, true, true);
             }
-            let next = *self.0.get_unchecked(1) as isize;
-            match next {
-                SPACE => {
+            let d2 = *self.0.get_unchecked(1) as isize - ZERO;
+            if d2 >= 0 {
+                let num = d1 * 10 + d2;
+                if self.0.len() == 2 {
                     self.0 = &self.0.get_unchecked(2..);
-                    (num, false, false)
+                    (num, true, true)
+                } else {
+                    let next = *self.0.get_unchecked(2);
+                    self.0 = &self.0.get_unchecked(3..);
+                    (num, next == b'\n', false)
                 }
-                NEWLINE => {
-                    self.0 = &self.0.get_unchecked(2..);
-                    (num, true, false)
-                }
-                _ => {
-                    let num = num * 10 + next - ZERO;
-                    if self.0.len() == 2 {
-                        (num, true, true)
-                    } else if *self.0.get_unchecked(2) == b'\n' {
-                        self.0 = &self.0.get_unchecked(3..);
-                        (num, true, false)
-                    } else {
-                        self.0 = &self.0.get_unchecked(3..);
-                        (num, false, false)
-                    }
-                }
+            } else {
+                self.0 = &self.0.get_unchecked(2..);
+                (d1, d2 == NEWLINE - ZERO, false)
             }
         }
     }
@@ -194,14 +181,14 @@ impl<const MIN: isize, const MAX: isize> DampingState<MIN, MAX> {
                 } else {
                     Self::TwoBad(last, last)
                 }
-            },
+            }
             Self::TwoBad(a, b) => {
                 if Self::RANGE.contains(&(next - a)) || Self::RANGE.contains(&(next - b)) {
                     Self::TwoBad(next, next)
                 } else {
                     Self::Unsafe
                 }
-            },
+            }
             Self::Unsafe => Self::Unsafe,
         };
     }
